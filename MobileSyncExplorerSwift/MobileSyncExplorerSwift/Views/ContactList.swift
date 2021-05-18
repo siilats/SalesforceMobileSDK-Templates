@@ -33,7 +33,7 @@ struct ContactListView: View {
     private var notificationModel = NotificationListModel()
     @State private var searchTerm: String = ""
     @State var selectedRecord: String? = nil
-    
+
     init(selectedRecord: String?) {
         self._selectedRecord = State(initialValue: selectedRecord)
     }
@@ -44,18 +44,23 @@ struct ContactListView: View {
                 VStack {
                     SearchBar(text: self.$searchTerm)
                     List {
-                        ForEach(viewModel.sObjectDataManager.contacts.filter { contact in
+                        ForEach(viewModel.store.items.filter { contact in
                             self.searchTerm.isEmpty ? true : self.viewModel.contactMatchesSearchTerm(contact: contact, searchTerm: self.searchTerm)
                         }) { contact in
-                            NavigationLink(destination: ContactDetailView(contact: contact, sObjectDataManager: self.viewModel.sObjectDataManager, dismiss: { self.selectedRecord = nil }), tag: contact.id.stringValue, selection: $selectedRecord) {
-                                if #available(iOS 14.0, *) {
-                                    ContactCell(contact: contact)
-                                        .onDrag { return viewModel.itemProvider(contact: contact) }
-                                } else {
-                                    ContactCell(contact: contact)
-                                }
+                            // NavigationLink(destination: ContactDetailView(contact: contact, sObjectDataManager: self.viewModel.sObjectDataManager, dismiss: { self.selectedRecord = nil }), tag: contact.id.stringValue, selection: $selectedRecord) {
+                            //     if #available(iOS 14.0, *) {
+                            //         ContactCell(contact: contact)
+                            //             .onDrag { return viewModel.itemProvider(contact: contact) }
+                            //     } else {
+                            //         ContactCell(contact: contact)
+                            //     }
+                            NavigationLink(destination: ContactDetailView(contact: contact, store: self.viewModel.store)) {
+                                ContactCell(contact: contact)
                             }
-                            .listRowBackground(SObjectDataManager.dataLocallyDeleted(contact) ? Color.contactCellDeletedBackground : Color.clear)
+                            .listRowBackground(
+                                //Store<ContactRecord>.dataLocallyDeleted(contact) ? Color.contactCellDeletedBackground : Color.clear
+                                self.viewModel.store.hasChanged() ? Color.contactCellDeletedBackground : Color.clear
+                            )
                         }
                     }
                     .id(UUID())
@@ -98,7 +103,7 @@ struct StatusAlert: View {
             VStack {
                 Text(viewModel.alertContent?.title ?? "").bold()
                 Text(viewModel.alertContent?.message ?? "").lineLimit(nil)
-                
+
                 if stopButton() || okayButton() {
                     Divider()
                     HStack {
@@ -112,7 +117,7 @@ struct StatusAlert: View {
                                 Text("Stop").foregroundColor(Color.blue)
                             })
                         }
-                        
+
                         if twoButtonDisplay() {
                             Spacer()
                             Divider()
@@ -162,7 +167,7 @@ struct NavBarButtons: View {
 
     var body: some View {
         HStack {
-            NavigationLink(destination: ContactDetailView(contact: nil, sObjectDataManager: self.viewModel.sObjectDataManager), isActive: $newContactPresented, label: { EmptyView() })
+            NavigationLink(destination: ContactDetailView(contact: ContactRecord(), store: self.viewModel.store), isActive: $newContactPresented, label: { EmptyView() })
             Button(action: {
                 self.newContactPresented = true
             }, label: { Image("plusButton").renderingMode(.template) })
@@ -211,7 +216,7 @@ struct NavBarButtons: View {
                 )])
             }.sheet(item: $modalPresented) { creationType in
                 if creationType == ModalAction.inspectDB {
-                    InspectorViewControllerWrapper(store: self.viewModel.sObjectDataManager.store)
+                    InspectorViewControllerWrapper(store: self.viewModel.store.store)
                 } else if creationType == ModalAction.switchUser {
                     SalesforceUserManagementViewControllerWrapper()
                 }
@@ -250,7 +255,7 @@ struct NotificationBell: View {
 }
 
 struct ContactCell: View {
-    var contact: ContactSObjectData
+    var contact: ContactRecord
 
     var body: some View {
         HStack {
@@ -260,10 +265,10 @@ struct ContactCell: View {
                 Text(ContactHelper.titleStringFromContact(contact)).font(.appRegularFont(12)).foregroundColor(.secondaryLabelText)
             }
             Spacer()
-            if SObjectDataManager.dataLocallyUpdated(contact) {
+            if Store<ContactRecord>.dataLocallyUpdated(contact) {
                 Image(systemName: "arrow.2.circlepath").foregroundColor(.appBlue)
             }
-            if SObjectDataManager.dataLocallyCreated(contact) {
+            if Store<ContactRecord>.dataLocallyCreated(contact) {
                 Image(systemName: "plus").foregroundColor(.appBlue)
             }
         }

@@ -4,7 +4,7 @@
 //
 //  Created by Brianna Birman on 4/3/20.
 //  Copyright (c) 2020-present, salesforce.com, inc. All rights reserved.
-// 
+//
 //  Redistribution and use of this software in source and binary forms, with or without modification,
 //  are permitted provided that the following conditions are met:
 //  * Redistributions of source code must retain the above copyright notice, this list of conditions
@@ -15,7 +15,7 @@
 //  * Neither the name of salesforce.com, inc. nor the names of its contributors may be used to
 //  endorse or promote products derived from this software without specific prior written
 //  permission of salesforce.com, inc.
-// 
+//
 //  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR
 //  IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
 //  FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
@@ -32,7 +32,7 @@ import Combine
 
 struct AlertContent: Identifiable {
      var id = UUID()
-    
+
     var title: String?
     var message: String?
     var stopButton = false
@@ -45,11 +45,11 @@ let openDetailRecordIdKey = "recordId"
 
 class ContactListViewModel: ObservableObject {
     @Published var alertContent: AlertContent?
-    @ObservedObject var sObjectDataManager: SObjectDataManager = SObjectDataManager.shared
+    @ObservedObject var store: Store = Store<ContactRecord>()
     var anyCancellable: AnyCancellable?
 
     init() {
-        anyCancellable = sObjectDataManager.objectWillChange.sink { _ in
+        anyCancellable = store.objectWillChange.sink { _ in
             self.objectWillChange.send()
         }
         self.syncUpDown()
@@ -60,7 +60,7 @@ class ContactListViewModel: ObservableObject {
             return
         }
         createAlert(title: "Syncing with Salesforce", message: nil, stopButton: false)
-        sObjectDataManager.syncUpDown(completion: { [weak self] success in
+        store.syncUpDown(completion: { [weak self] success in
             if success {
                 self?.updateAlert(info: "Sync Complete!", okayButton: false)
             } else {
@@ -72,8 +72,8 @@ class ContactListViewModel: ObservableObject {
         })
     }
 
-    func contactMatchesSearchTerm(contact: ContactSObjectData, searchTerm: String) -> Bool {
-        let dataSpec: SObjectDataSpec? = ContactSObjectData.dataSpec()
+    func contactMatchesSearchTerm(contact: ContactRecord, searchTerm: String) -> Bool {
+        let dataSpec: SObjectDataSpec? = ContactRecord.dataSpec()
         if let dataSpec = dataSpec {
             for fieldSpec in dataSpec.objectFieldSpecs where fieldSpec.isSearchable {
                 let fieldValue = contact.fieldValue(forFieldName: fieldSpec.fieldName) as? String
@@ -100,19 +100,19 @@ class ContactListViewModel: ObservableObject {
     }
 
     func showInfo() {
-        let syncManagerState = sObjectDataManager.isSyncManagerStopping() ? "stopping" : (sObjectDataManager.isSyncManagerStopped() ? "stopped" : "accepting_syncs")
+        let syncManagerState = store.isSyncManagerStopping() ? "stopping" : (store.isSyncManagerStopped() ? "stopped" : "accepting_syncs")
         let info = ""
            + "syncManager:\(syncManagerState)\n"
-            + "numberOfContacts=\(sObjectDataManager.countContacts())\n"
-            + "syncDownContacts=\(infoForSyncState(sObjectDataManager.getSync("syncDownContacts")))\n"
-            + "syncUpContacts=\(infoForSyncState(sObjectDataManager.getSync("syncUpContacts")))"
-       
+            + "numberOfContacts=\(store.count())\n"
+            + "syncDownContacts=\(infoForSyncState(store.getSync("syncDownContacts")))\n"
+            + "syncUpContacts=\(infoForSyncState(store.getSync("syncUpContacts")))"
+
         createAlert(title: "Sync Info", message: info, stopButton: false, okayButton: true)
     }
 
     func cleanGhosts() {
         createAlert(title: "Cleaning Sync Ghosts", message: nil, stopButton: true)
-        sObjectDataManager.cleanGhosts(onError: { [weak self] mobileSyncError in
+        store.cleanGhosts(onError: { [weak self] mobileSyncError in
             self?.updateAlert(info: "Failed with error \(mobileSyncError)")
         }, onValue: { [weak self] numRecords in
             self?.updateAlert(info: "Clean ghosts: \(numRecords) records")
@@ -120,25 +120,17 @@ class ContactListViewModel: ObservableObject {
     }
 
     func clearLocalData() {
-        sObjectDataManager.clearLocalData()
+        store.clearLocalData()
     }
 
     func refreshLocalData() {
-        sObjectDataManager.loadLocalData()
-    }
-
-    func syncDown() {
-        sync(syncName: sObjectDataManager.kSyncDownName)
-    }
-
-    func syncUp() {
-        sync(syncName: sObjectDataManager.kSyncUpName)
+        store.loadLocalData()
     }
 
     func resumeSyncManager() {
         createAlert(title: "Resuming Sync Manager", message: nil, stopButton: true)
         do {
-            try sObjectDataManager.resumeSyncManager { [weak self] syncState in
+            try store.resumeSyncManager { [weak self] syncState in
                 let isLast = syncState.status != .running
                 self?.updateAlert(info: self?.infoForSyncState(syncState), okayButton: isLast)
             }
@@ -148,14 +140,14 @@ class ContactListViewModel: ObservableObject {
     }
 
     func stopSyncManager() {
-        sObjectDataManager.stopSyncManager()
+        store.stopSyncManager()
     }
 
     func stopAction() {
-        sObjectDataManager.stopSyncManager()
+        store.stopSyncManager()
         updateAlert(info: "\nRequesting sync manager stop")
     }
-    
+
     func itemProvider(contact: ContactSObjectData) -> NSItemProvider {
         let userActivity = NSUserActivity(activityType: openDetailActivityType)
         userActivity.title = openDetailPath
@@ -166,10 +158,9 @@ class ContactListViewModel: ObservableObject {
         return itemProvider
     }
 
-    // MARK: Private
-    private func sync(syncName: String) {
-        createAlert(title: "Running \(syncName)", message: nil, stopButton: true)
-        sObjectDataManager.sync(syncName: syncName, onError: { [weak self] mobileSyncError in
+    func syncDown() {
+        createAlert(title: "Running Down", message: nil, stopButton: true)
+        store.syncDown( onError: { [weak self] mobileSyncError in
             self?.updateAlert(info: "Failed with error: \(mobileSyncError)")
         }, onValue: { [weak self] syncState in
         let info = self?.infoForSyncState(syncState)
@@ -177,6 +168,18 @@ class ContactListViewModel: ObservableObject {
             self?.updateAlert(info: info, okayButton: isLast)
        })
     }
+
+    func syncUp() {
+        createAlert(title: "Running Up", message: nil, stopButton: true)
+        store.syncUp( onError: { [weak self] mobileSyncError in
+            self?.updateAlert(info: "Failed with error: \(mobileSyncError)")
+        }, onValue: { [weak self] syncState in
+        let info = self?.infoForSyncState(syncState)
+            let isLast = syncState.status != .running
+            self?.updateAlert(info: info, okayButton: isLast)
+       })
+    }
+    // MARK: Private
 
     private func createAlert(title: String, message: String?, stopButton: Bool, okayButton: Bool = false) {
         alertContent = AlertContent(title: title, message: message, stopButton: stopButton, okayButton: okayButton)

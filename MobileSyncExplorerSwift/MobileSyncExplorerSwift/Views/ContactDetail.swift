@@ -28,7 +28,7 @@
 import SwiftUI
 
 struct ReadView: View {
-    var contact: ContactSObjectData
+    var contact: ContactRecord
 
     var body: some View {
         List {
@@ -56,8 +56,7 @@ struct ReadViewField: View {
 }
 
 struct EditView: View {
-    @Binding var contact: ContactSObjectData
-
+    @Binding var contact: ContactRecord
     var body: some View {
         Form {
             TextField("First Name", text: $contact.firstName.bound)
@@ -78,47 +77,41 @@ struct EditView: View {
     }
 }
 
+
 struct ContactDetailView: View {
     @Environment(\.presentationMode) var presentationMode
-    @ObservedObject private var viewModel: ContactDetailViewModel
-    @State private var isEditing: Bool = false
-    private var onAppearAction: () -> Void = {}
-    private var dismissAction: () -> Void = {}
+    @State var contact: ContactRecord
+    @State  var isEditing: Bool = false
+    var store: Store<ContactRecord>
+    var isNewContact: Bool = false
 
-    init(contactId: String, sObjectDataManager: SObjectDataManager, onAppear: @escaping () -> Void) {
-        self.viewModel = ContactDetailViewModel(contactId: contactId, sObjectDataManager: sObjectDataManager)
-        self.onAppearAction = onAppear
-    }
-
-    init(contact: ContactSObjectData?, sObjectDataManager: SObjectDataManager) {
-        self.viewModel = ContactDetailViewModel(contact: contact, sObjectDataManager: sObjectDataManager)
-        if viewModel.isNewContact {
-            self._isEditing = State(initialValue: true)
+    func saveInput() {
+        if self.isNewContact {
+            store.createLocalData(contact)
+        } else {
+            store.updateLocalData(contact)
         }
     }
-    
-    init(contact: ContactSObjectData, sObjectDataManager: SObjectDataManager, dismiss: @escaping () -> Void) {
-        self.viewModel = ContactDetailViewModel(contact: contact, sObjectDataManager: sObjectDataManager)
-        self.dismissAction = dismiss
+    func isLocallyDeleted() -> Bool {
+        return Store<ContactRecord>.dataLocallyDeleted(contact)
     }
 
     var body: some View {
         VStack {
             if isEditing {
-                EditView(contact: $viewModel.contact)
+                EditView(contact: $contact)
             } else {
                 ReadView(contact: viewModel.contact)
             }
             Spacer()
-            DeleteButton(label: viewModel.deleteButtonTitle(), isDisabled: viewModel.isNewContact) {
-                self.viewModel.deleteButtonTapped()
+            DeleteButton(label: isLocallyDeleted() ? "Undelete Contact" : "Delete Contact", isDisabled: isNewContact) {
+                self.isLocallyDeleted() ? self.store.undeleteLocalData(self.contact) : self.store.deleteLocalData(self.contact)
                 self.presentationMode.wrappedValue.dismiss()
             }
         }.onAppear {
             self.onAppearAction()
         }
-        .navigationBarTitle(Text(viewModel.title), displayMode: .inline)
-        .navigationBarBackButtonHidden(true)
+        .navigationBarTitle(Text(ContactHelper.nameStringFromContact(contact)), displayMode: .inline)
         .navigationBarItems(leading:
             Button(action: {
                 if self.isEditing {
@@ -161,7 +154,7 @@ struct DeleteButton: View {
     let label: String
     let isDisabled: Bool
     let action: () -> ()
-    
+
     func buttonBackground() -> Color {
         isDisabled ? Color.disabledDestructiveButton : Color.destructiveButton
     }
